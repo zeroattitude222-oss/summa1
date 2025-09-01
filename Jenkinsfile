@@ -77,11 +77,11 @@ pipeline {
                     // Update image tags in Kubernetes manifests
                     sh """
                         # Update frontend deployment
-                        sed -i 's|image: exam-converter/frontend:.*|image: ${DOCKER_REGISTRY}/${APP_NAME}/frontend:${BUILD_VERSION}|g' k8s/frontend-deployment.yaml
+                        sed -i 's|image: exam-converter/frontend:.*|image: ${DOCKER_REGISTRY}/${APP_NAME}/frontend:${BUILD_VERSION}|g\' k8s/frontend-deployment.yaml
                         
                         # Update WASM module deployments
-                        sed -i 's|image: exam-converter/python-wasm:.*|image: ${DOCKER_REGISTRY}/${APP_NAME}/python-wasm:${BUILD_VERSION}|g' k8s/wasm-deployments.yaml
-                        sed -i 's|image: exam-converter/rust-wasm:.*|image: ${DOCKER_REGISTRY}/${APP_NAME}/rust-wasm:${BUILD_VERSION}|g' k8s/wasm-deployments.yaml
+                        sed -i 's|image: exam-converter/python-wasm:.*|image: ${DOCKER_REGISTRY}/${APP_NAME}/python-wasm:${BUILD_VERSION}|g\' k8s/wasm-deployments.yaml
+                        sed -i 's|image: exam-converter/rust-wasm:.*|image: ${DOCKER_REGISTRY}/${APP_NAME}/rust-wasm:${BUILD_VERSION}|g\' k8s/wasm-deployments.yaml
                     """
                 }
             }
