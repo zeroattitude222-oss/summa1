@@ -1,39 +1,79 @@
 version: '3.8'
 
 services:
+  # Frontend React application with WASM integration
   frontend:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-builder
     ports:
       - "5173:5173"
     environment:
       - NODE_ENV=development
-      - VITE_PYTHON_SERVICE_URL=http://python-analyzer:8001
-      - VITE_RUST_SERVICE_URL=http://rust-converter:8002
-    depends_on:
-      - python-analyzer
-      - rust-converter
+      - VITE_WASM_PYTHON_URL=/wasm/python
+      - VITE_WASM_RUST_URL=/wasm/rust
     volumes:
       - .:/app
       - /app/node_modules
+      - wasm-modules:/app/public/wasm
+    depends_on:
+      - python-wasm-builder
+      - rust-wasm-builder
+    command: npm run dev -- --host 0.0.0.0
 
-  python-analyzer:
-    build: ./python-wasm
+  # Python WASM module builder and server
+  python-wasm-builder:
+    build: 
+      context: ./wasm-modules/python-analyzer
+      dockerfile: Dockerfile
     ports:
-      - "8001:8001"
+      - "8080:8080"
+    volumes:
+      - wasm-modules:/output/python
     environment:
-      - FLASK_ENV=development
       - PYTHONPATH=/app
-    volumes:
-      - ./python-wasm:/app
+    command: >
+      sh -c "
+        python build.py &&
+        cp -r build/* /output/python/ &&
+        python -m http.server 8080 --directory /output/python
+      "
 
-  rust-converter:
-    build: ./rust-wasm
+  # Rust WASM module builder and server
+  rust-wasm-builder:
+    build: 
+      context: ./wasm-modules/rust-converter
+      dockerfile: Dockerfile
     ports:
-      - "8002:8002"
-    environment:
-      - RUST_LOG=debug
+      - "8081:8081"
     volumes:
-      - ./rust-wasm:/app
+      - wasm-modules:/output/rust
+    environment:
+      - RUST_LOG=info
+    command: >
+      sh -c "
+        ./build.sh &&
+        cp -r build/* /output/rust/ &&
+        cd /output/rust &&
+        python -m http.server 8081
+      "
+
+  # WASM file server (serves built WASM modules)
+  wasm-server:
+    image: nginx:alpine
+    ports:
+      - "8082:80"
+    volumes:
+      - wasm-modules:/usr/share/nginx/html
+      - ./nginx-wasm.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - python-wasm-builder
+      - rust-wasm-builder
+
+volumes:
+  wasm-modules:
+    driver: local
 
 networks:
   default:

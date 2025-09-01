@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wasm-server
+  namespace: exam-converter
+  labels:
+    app: wasm-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wasm-server
+  template:
+    metadata:
+      labels:
+        app: wasm-server
+    spec:
+      containers:
+      - name: python-wasm
+        image: exam-converter/python-wasm:latest
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: wasm-files
+          mountPath: /usr/share/nginx/html/python
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /python/
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /python/
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      
+      - name: rust-wasm
+        image: exam-converter/rust-wasm:latest
+        ports:
+        - containerPort: 8081
+        volumeMounts:
+        - name: wasm-files
+          mountPath: /usr/share/nginx/html/rust
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /rust/
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /rust/
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      
+      volumes:
+      - name: wasm-files
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wasm-service
+  namespace: exam-converter
+spec:
+  selector:
+    app: wasm-server
+  ports:
+  - name: python-wasm
+    protocol: TCP
+    port: 8080
+    targetPort: 8080
+  - name: rust-wasm
+    protocol: TCP
+    port: 8081
+    targetPort: 8081
+  type: ClusterIP

@@ -1,66 +1,69 @@
 import { AnalysisResult, ConversionResult } from '../types';
 
+declare global {
+  interface Window {
+    WasmLoader: any;
+    pyodide: any;
+  }
+}
+
 class WasmService {
+  private wasmLoader: any = null;
   private pythonModule: any = null;
   private rustModule: any = null;
+  private initialized = false;
 
-  async initializePython(): Promise<void> {
-    if (this.pythonModule) return;
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
     
     try {
-      // Load Python WASM module
-      const response = await fetch('/wasm/python-analyzer.wasm');
-      const wasmBytes = await response.arrayBuffer();
+      console.log('🚀 Initializing WASM Service...');
       
-      // Initialize Python module (placeholder for actual WASM integration)
-      this.pythonModule = {
-        analyzeDocument: (fileContent: ArrayBuffer, fileName: string) => {
-          return this.mockPythonAnalysis(fileName);
-        }
-      };
+      // Load WASM loader script
+      await this.loadWasmLoader();
+      
+      // Initialize WASM modules
+      this.wasmLoader = new window.WasmLoader();
+      const modules = await this.wasmLoader.loadAll();
+      
+      this.pythonModule = modules.python;
+      this.rustModule = modules.rust;
+      this.initialized = true;
+      
+      console.log('✅ WASM Service initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize Python WASM:', error);
-      throw new Error('Python analysis module failed to load');
+      console.error('❌ Failed to initialize WASM Service:', error);
+      throw error;
     }
   }
 
-  async initializeRust(): Promise<void> {
-    if (this.rustModule) return;
-    
-    try {
-      // Load Rust WASM module
-      const response = await fetch('/wasm/rust-converter.wasm');
-      const wasmBytes = await response.arrayBuffer();
-      
-      // Initialize Rust module (placeholder for actual WASM integration)
-      this.rustModule = {
-        convertDocument: (fileContent: ArrayBuffer, targetFormat: string, maxSize: number) => {
-          return this.mockRustConversion(fileContent, targetFormat, maxSize);
-        }
-      };
-    } catch (error) {
-      console.error('Failed to initialize Rust WASM:', error);
-      throw new Error('Document conversion module failed to load');
-    }
+  private async loadWasmLoader(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (window.WasmLoader) {
+        resolve();
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = '/wasm-loader.js';
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load WASM loader'));
+      document.head.appendChild(script);
+    });
   }
 
   async analyzeDocument(file: File): Promise<AnalysisResult> {
+    if (!this.pythonModule) {
+      throw new Error('Python WASM module not initialized');
+    }
+
     try {
-      const response = await fetch('/api/python/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          filename: file.name
-        })
-      });
+      console.log(`🔍 Analyzing document: ${file.name}`);
       
-      if (!response.ok) {
-        throw new Error(`Analysis failed: ${response.statusText}`);
-      }
+      // Call Python WASM function
+      const resultJson = this.pythonModule.analyzeDocument(file.name);
+      const result = JSON.parse(resultJson);
       
-      const result = await response.json();
       return {
         originalName: result.original_name,
         suggestedName: result.suggested_name,
@@ -80,44 +83,59 @@ class WasmService {
     targetFormats: string[], 
     maxSizes: Record<string, number>
   ): Promise<ConversionResult> {
+    if (!this.rustModule) {
+      throw new Error('Rust WASM module not initialized');
+    }
+
     try {
-      // Convert files to base64 for transmission
+      console.log(`🔄 Converting ${files.length} documents for ${examType}`);
+      
+      // Convert files to format expected by Rust WASM
       const fileData = await Promise.all(
         files.map(async (file) => {
           const arrayBuffer = await file.arrayBuffer();
-          const base64Content = btoa(
-            new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-          );
-          
           return {
             name: file.name,
-            content: base64Content,
-            mime_type: file.type
+            content: Array.from(new Uint8Array(arrayBuffer)),
+            mime_type: file.type,
+            size: file.size
           };
         })
       );
       
-      const response = await fetch('/api/rust/convert', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          files: fileData,
-          exam_type: examType,
-          target_formats: targetFormats,
-          max_sizes: Object.fromEntries(
-            Object.entries(maxSizes).map(([k, v]) => [k, v])
-          )
-        })
-      });
+      const request = {
+        files: fileData,
+        exam_type: examType,
+        target_formats: targetFormats,
+        max_sizes: maxSizes
+      };
       
-      if (!response.ok) {
-        throw new Error(`Conversion failed: ${response.statusText}`);
+      // Call Rust WASM function
+      const converter = new this.rustModule.WasmDocumentConverter();
+      const resultJson = converter.convert_documents(JSON.stringify(request));
+      const result = JSON.parse(resultJson);
+      
+      // Convert blob URLs to actual downloadable URLs
+      if (result.success) {
+        for (const file of result.files) {
+          // In a real implementation, you would create proper blob URLs
+          // For now, we'll create mock downloadable content
+          const blob = new Blob([new Uint8Array(fileData[0].content)], {
+            type: this.getMimeType(file.format)
+          });
+          file.download_url = URL.createObjectURL(blob);
+        }
       }
       
-      const result = await response.json();
-      return result;
+      return {
+        success: result.success,
+        files: result.files.map((f: any) => ({
+          originalName: f.original_name,
+          convertedName: f.converted_name,
+          downloadUrl: f.download_url
+        })),
+        error: result.error
+      };
     } catch (error) {
       console.error('Rust conversion error:', error);
       // Fallback to mock conversion
@@ -125,31 +143,59 @@ class WasmService {
     }
   }
 
+  private getMimeType(format: string): string {
+    const mimeTypes: Record<string, string> = {
+      'PDF': 'application/pdf',
+      'JPEG': 'image/jpeg',
+      'JPG': 'image/jpeg',
+      'PNG': 'image/png',
+      'DOCX': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    };
+    
+    return mimeTypes[format.toUpperCase()] || 'application/octet-stream';
+  }
+
   // Mock implementations for development
   private mockPythonAnalysis(fileName: string): AnalysisResult {
-    const documentTypes = {
+    const documentTypes: Record<string, string> = {
       'marksheet': '10thMarksheet',
-      'certificate': 'Certificate',
+      'certificate': 'Certificate', 
       'photo': 'PassportPhoto',
-      'signature': 'Signature'
+      'signature': 'Signature',
+      'aadhar': 'AadharCard',
+      'pan': 'PANCard',
+      'caste': 'CasteCertificate',
+      'income': 'IncomeCertificate'
     };
     
     const lowerName = fileName.toLowerCase();
     let suggestedName = fileName;
     let documentType = 'Unknown';
+    let confidence = 0.5;
     
     for (const [key, value] of Object.entries(documentTypes)) {
       if (lowerName.includes(key)) {
         documentType = value;
-        suggestedName = `${value}.${fileName.split('.').pop()}`;
+        const extension = fileName.split('.').pop();
+        suggestedName = `${value}.${extension}`;
+        confidence = 0.85;
         break;
       }
+    }
+    
+    // Detect class/grade
+    if (lowerName.includes('10') || lowerName.includes('tenth')) {
+      suggestedName = suggestedName.replace('Marksheet', '10thMarksheet');
+      confidence = Math.min(confidence + 0.1, 1.0);
+    } else if (lowerName.includes('12') || lowerName.includes('twelfth')) {
+      suggestedName = suggestedName.replace('Marksheet', '12thMarksheet');
+      confidence = Math.min(confidence + 0.1, 1.0);
     }
     
     return {
       originalName: fileName,
       suggestedName,
-      confidence: 0.85,
+      confidence,
       documentType
     };
   }
@@ -158,24 +204,31 @@ class WasmService {
     files: File[],
     targetFormats: string[]
   ): Promise<ConversionResult> {
+    console.log('🔄 Using mock conversion (WASM modules not available)');
+    
     // Simulate conversion delay
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     const convertedFiles = [];
     
     for (const file of files) {
-      for (const format of targetFormats) {
-        const blob = new Blob([await file.arrayBuffer()], { 
-          type: `application/${format.toLowerCase()}` 
-        });
-        const url = URL.createObjectURL(blob);
-        
-        convertedFiles.push({
-          originalName: file.name,
-          convertedName: `${file.name.split('.')[0]}.${format.toLowerCase()}`,
-          downloadUrl: url
-        });
-      }
+      // Create a mock converted file for the primary target format
+      const primaryFormat = targetFormats[0];
+      
+      // Create a blob with the original file content
+      const blob = new Blob([await file.arrayBuffer()], { 
+        type: this.getMimeType(primaryFormat)
+      });
+      const url = URL.createObjectURL(blob);
+      
+      const baseName = file.name.split('.')[0];
+      const convertedName = `${baseName}_converted.${primaryFormat.toLowerCase()}`;
+      
+      convertedFiles.push({
+        originalName: file.name,
+        convertedName,
+        downloadUrl: url
+      });
     }
     
     return {

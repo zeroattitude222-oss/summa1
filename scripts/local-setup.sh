@@ -1,92 +1,145 @@
 #!/bin/bash
 
-# Local Development Setup Script for Exam Document Converter
+# Local Development Setup Script for Client-Side WASM Exam Document Converter
 
 set -e
 
-echo "🚀 Setting up Exam Document Converter locally..."
+echo "🚀 Setting up Client-Side WASM Exam Document Converter locally..."
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
 # Check prerequisites
 check_prerequisites() {
-    echo "📋 Checking prerequisites..."
+    echo -e "${BLUE}📋 Checking prerequisites...${NC}"
+    
+    local missing_deps=()
     
     if ! command -v docker &> /dev/null; then
-        echo "❌ Docker is not installed. Please install Docker Desktop."
-        exit 1
+        missing_deps+=("Docker Desktop")
     fi
     
     if ! command -v kubectl &> /dev/null; then
-        echo "❌ kubectl is not installed. Please install kubectl."
+        missing_deps+=("kubectl")
+    fi
+    
+    if ! command -v node &> /dev/null; then
+        missing_deps+=("Node.js 18+")
+    fi
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        echo -e "${RED}❌ Missing dependencies:${NC}"
+        printf '%s\n' "${missing_deps[@]}"
+        echo -e "${YELLOW}Please install the missing dependencies and run this script again.${NC}"
         exit 1
     fi
     
-    echo "✅ Prerequisites check passed!"
+    echo -e "${GREEN}✅ Prerequisites check passed!${NC}"
+}
+
+# Build WASM modules
+build_wasm_modules() {
+    echo -e "${BLUE}🔨 Building WASM modules...${NC}"
+    
+    # Build Python WASM module
+    echo -e "${YELLOW}🐍 Building Python WASM module...${NC}"
+    cd wasm-modules/python-analyzer
+    python build.py
+    cd ../..
+    echo -e "${GREEN}✅ Python WASM module built${NC}"
+    
+    # Build Rust WASM module
+    echo -e "${YELLOW}🦀 Building Rust WASM module...${NC}"
+    cd wasm-modules/rust-converter
+    chmod +x build.sh
+    ./build.sh
+    cd ../..
+    echo -e "${GREEN}✅ Rust WASM module built${NC}"
+    
+    # Copy WASM modules to public directory
+    echo -e "${YELLOW}📦 Copying WASM modules to public directory...${NC}"
+    mkdir -p public/wasm/python public/wasm/rust
+    cp -r wasm-modules/python-analyzer/build/* public/wasm/python/
+    cp -r wasm-modules/rust-converter/build/* public/wasm/rust/
+    echo -e "${GREEN}✅ WASM modules copied to public directory${NC}"
 }
 
 # Setup with Docker Compose (Quick Start)
 setup_docker_compose() {
-    echo "🐳 Setting up with Docker Compose..."
+    echo -e "${BLUE}🐳 Setting up with Docker Compose...${NC}"
+    
+    # Build WASM modules first
+    build_wasm_modules
     
     # Build and start services
     docker-compose up --build -d
     
-    echo "⏳ Waiting for services to be ready..."
+    echo -e "${YELLOW}⏳ Waiting for services to be ready...${NC}"
     sleep 30
     
-    # Check service health
-    echo "🔍 Checking service health..."
-    curl -f http://localhost:8001/health || echo "⚠️  Python service not ready"
-    curl -f http://localhost:8002/health || echo "⚠️  Rust service not ready"
-    
-    echo "✅ Docker Compose setup complete!"
-    echo "🌐 Frontend: http://localhost:5173"
-    echo "🐍 Python API: http://localhost:8001"
-    echo "🦀 Rust API: http://localhost:8002"
+    echo -e "${GREEN}✅ Docker Compose setup complete!${NC}"
+    echo -e "${GREEN}🌐 Frontend: http://localhost:5173${NC}"
+    echo -e "${BLUE}📄 Python WASM: http://localhost:8080/python/${NC}"
+    echo -e "${BLUE}🦀 Rust WASM: http://localhost:8081/rust/${NC}"
 }
 
 # Setup with Minikube
 setup_minikube() {
-    echo "☸️  Setting up with Minikube..."
+    echo -e "${BLUE}☸️  Setting up with Minikube...${NC}"
     
     # Start Minikube
+    echo -e "${YELLOW}🚀 Starting Minikube...${NC}"
     minikube start --memory=4096 --cpus=2
     
     # Enable addons
     minikube addons enable ingress
     
-    # Build and load images
-    echo "🏗️  Building Docker images..."
-    docker build -t exam-converter/frontend:latest .
-    docker build -t exam-converter/python-analyzer:latest ./python-wasm
-    docker build -t exam-converter/rust-converter:latest ./rust-wasm
+    # Build WASM modules
+    build_wasm_modules
     
-    echo "📦 Loading images into Minikube..."
-    minikube image load exam-converter/frontend:latest
-    minikube image load exam-converter/python-analyzer:latest
-    minikube image load exam-converter/rust-converter:latest
+    # Build Docker images
+    echo -e "${YELLOW}🏗️  Building Docker images...${NC}"
+    eval $(minikube docker-env)
+    
+    docker build -t exam-converter/frontend:latest .
+    docker build -t exam-converter/python-wasm:latest ./wasm-modules/python-analyzer
+    docker build -t exam-converter/rust-wasm:latest ./wasm-modules/rust-converter
+    
+    echo -e "${GREEN}✅ Docker images built${NC}"
     
     # Deploy to Kubernetes
-    echo "🚀 Deploying to Kubernetes..."
+    echo -e "${YELLOW}🚀 Deploying to Kubernetes...${NC}"
     kubectl apply -f k8s/
     
     # Wait for deployments
-    echo "⏳ Waiting for deployments to be ready..."
+    echo -e "${YELLOW}⏳ Waiting for deployments to be ready...${NC}"
     kubectl wait --for=condition=available --timeout=300s deployment --all -n exam-converter
     
     # Setup ingress
     MINIKUBE_IP=$(minikube ip)
-    echo "🌐 Adding exam-converter.local to /etc/hosts..."
-    echo "$MINIKUBE_IP exam-converter.local" | sudo tee -a /etc/hosts
+    echo -e "${YELLOW}🌐 Adding exam-converter.local to /etc/hosts...${NC}"
     
-    echo "✅ Minikube setup complete!"
-    echo "🌐 Application: http://exam-converter.local"
+    # Check if entry already exists
+    if ! grep -q "exam-converter.local" /etc/hosts; then
+        echo "$MINIKUBE_IP exam-converter.local" | sudo tee -a /etc/hosts
+    else
+        echo -e "${YELLOW}⚠️  exam-converter.local already exists in /etc/hosts${NC}"
+    fi
+    
+    echo -e "${GREEN}✅ Minikube setup complete!${NC}"
+    echo -e "${GREEN}🌐 Application: http://exam-converter.local${NC}"
 }
 
 # Setup with Kind
 setup_kind() {
-    echo "🔧 Setting up with Kind..."
+    echo -e "${BLUE}🔧 Setting up with Kind...${NC}"
     
     # Create Kind cluster with ingress support
+    echo -e "${YELLOW}🚀 Creating Kind cluster...${NC}"
     cat <<EOF | kind create cluster --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -108,6 +161,7 @@ nodes:
 EOF
     
     # Install NGINX Ingress Controller
+    echo -e "${YELLOW}📡 Installing NGINX Ingress Controller...${NC}"
     kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
     
     # Wait for ingress controller
@@ -116,30 +170,95 @@ EOF
       --selector=app.kubernetes.io/component=controller \
       --timeout=90s
     
-    # Build and load images
-    echo "🏗️  Building Docker images..."
-    docker build -t exam-converter/frontend:latest .
-    docker build -t exam-converter/python-analyzer:latest ./python-wasm
-    docker build -t exam-converter/rust-converter:latest ./rust-wasm
+    # Build WASM modules
+    build_wasm_modules
     
-    echo "📦 Loading images into Kind..."
+    # Build and load images
+    echo -e "${YELLOW}🏗️  Building Docker images...${NC}"
+    docker build -t exam-converter/frontend:latest .
+    docker build -t exam-converter/python-wasm:latest ./wasm-modules/python-analyzer
+    docker build -t exam-converter/rust-wasm:latest ./wasm-modules/rust-converter
+    
+    echo -e "${YELLOW}📦 Loading images into Kind...${NC}"
     kind load docker-image exam-converter/frontend:latest
-    kind load docker-image exam-converter/python-analyzer:latest
-    kind load docker-image exam-converter/rust-converter:latest
+    kind load docker-image exam-converter/python-wasm:latest
+    kind load docker-image exam-converter/rust-wasm:latest
     
     # Deploy application
-    echo "🚀 Deploying to Kubernetes..."
+    echo -e "${YELLOW}🚀 Deploying to Kubernetes...${NC}"
     kubectl apply -f k8s/
     
     # Wait for deployments
     kubectl wait --for=condition=available --timeout=300s deployment --all -n exam-converter
     
     # Setup hosts file
-    echo "🌐 Adding exam-converter.local to /etc/hosts..."
-    echo "127.0.0.1 exam-converter.local" | sudo tee -a /etc/hosts
+    echo -e "${YELLOW}🌐 Adding exam-converter.local to /etc/hosts...${NC}"
+    if ! grep -q "exam-converter.local" /etc/hosts; then
+        echo "127.0.0.1 exam-converter.local" | sudo tee -a /etc/hosts
+    else
+        echo -e "${YELLOW}⚠️  exam-converter.local already exists in /etc/hosts${NC}"
+    fi
     
-    echo "✅ Kind setup complete!"
-    echo "🌐 Application: http://exam-converter.local"
+    echo -e "${GREEN}✅ Kind setup complete!${NC}"
+    echo -e "${GREEN}🌐 Application: http://exam-converter.local${NC}"
+}
+
+# Development mode (local npm dev server)
+setup_development() {
+    echo -e "${BLUE}💻 Setting up development environment...${NC}"
+    
+    # Build WASM modules
+    build_wasm_modules
+    
+    # Install npm dependencies
+    echo -e "${YELLOW}📦 Installing npm dependencies...${NC}"
+    npm install
+    
+    # Start development server
+    echo -e "${YELLOW}🚀 Starting development server...${NC}"
+    npm run dev &
+    
+    echo -e "${GREEN}✅ Development setup complete!${NC}"
+    echo -e "${GREEN}🌐 Application: http://localhost:5173${NC}"
+    echo -e "${BLUE}💡 WASM modules are served from public/wasm/ directory${NC}"
+}
+
+# Cleanup function
+cleanup() {
+    echo -e "${BLUE}🧹 Cleanup options:${NC}"
+    echo "1) Stop Docker Compose"
+    echo "2) Delete Minikube cluster"
+    echo "3) Delete Kind cluster"
+    echo "4) Clean WASM build files"
+    echo "5) Remove /etc/hosts entries"
+    echo ""
+    read -p "Enter your choice (1-5): " cleanup_choice
+    
+    case $cleanup_choice in
+        1)
+            docker-compose down
+            echo -e "${GREEN}✅ Docker Compose stopped${NC}"
+            ;;
+        2)
+            minikube delete
+            echo -e "${GREEN}✅ Minikube cluster deleted${NC}"
+            ;;
+        3)
+            kind delete cluster
+            echo -e "${GREEN}✅ Kind cluster deleted${NC}"
+            ;;
+        4)
+            rm -rf wasm-modules/*/build public/wasm
+            echo -e "${GREEN}✅ WASM build files cleaned${NC}"
+            ;;
+        5)
+            sudo sed -i '/exam-converter.local/d' /etc/hosts
+            echo -e "${GREEN}✅ /etc/hosts entries removed${NC}"
+            ;;
+        *)
+            echo -e "${RED}❌ Invalid choice${NC}"
+            ;;
+    esac
 }
 
 # Main menu
@@ -147,43 +266,61 @@ main() {
     check_prerequisites
     
     echo ""
-    echo "Choose deployment method:"
-    echo "1) Docker Compose (Quick Start)"
-    echo "2) Minikube (Full Kubernetes)"
-    echo "3) Kind (Lightweight Kubernetes)"
+    echo -e "${BLUE}🎯 Exam Document Converter - Client-Side WASM Application${NC}"
+    echo -e "${BLUE}Choose deployment method:${NC}"
+    echo "1) Development Mode (npm dev server)"
+    echo "2) Docker Compose (Quick Start)"
+    echo "3) Minikube (Full Kubernetes)"
+    echo "4) Kind (Lightweight Kubernetes)"
+    echo "5) Cleanup"
     echo ""
-    read -p "Enter your choice (1-3): " choice
+    read -p "Enter your choice (1-5): " choice
     
     case $choice in
         1)
-            setup_docker_compose
+            setup_development
             ;;
         2)
-            setup_minikube
+            setup_docker_compose
             ;;
         3)
+            setup_minikube
+            ;;
+        4)
             setup_kind
             ;;
+        5)
+            cleanup
+            ;;
         *)
-            echo "❌ Invalid choice. Please run the script again."
+            echo -e "${RED}❌ Invalid choice. Please run the script again.${NC}"
             exit 1
             ;;
     esac
     
-    echo ""
-    echo "🎉 Setup complete! Your Exam Document Converter is ready to use."
-    echo ""
-    echo "📚 Next steps:"
-    echo "1. Open the application in your browser"
-    echo "2. Select an exam type (NEET, JEE, UPSC, CAT, GATE)"
-    echo "3. Upload your documents"
-    echo "4. Click 'Convert Documents' to process them"
-    echo "5. Download the converted files"
-    echo ""
-    echo "🔧 Troubleshooting:"
-    echo "- Check logs: kubectl logs -f deployment/<service-name> -n exam-converter"
-    echo "- Check pods: kubectl get pods -n exam-converter"
-    echo "- Check services: kubectl get svc -n exam-converter"
+    if [ $choice -ne 5 ]; then
+        echo ""
+        echo -e "${GREEN}🎉 Setup complete! Your Client-Side WASM Exam Document Converter is ready!${NC}"
+        echo ""
+        echo -e "${BLUE}📚 How it works:${NC}"
+        echo "1. 🎯 Select an exam type (NEET, JEE, UPSC, CAT, GATE)"
+        echo "2. 📁 Upload your documents (drag & drop or click to browse)"
+        echo "3. 🔄 Click 'Convert Documents' to process them client-side"
+        echo "4. 📥 Download the converted files"
+        echo ""
+        echo -e "${BLUE}🔧 Key Features:${NC}"
+        echo "• 🌐 100% Client-Side Processing (No server uploads)"
+        echo "• 🐍 Python WASM for intelligent file analysis & renaming"
+        echo "• 🦀 Rust WASM for high-performance document conversion"
+        echo "• 🔒 Privacy-First (Files never leave your browser)"
+        echo "• ⚡ Fast processing with WebAssembly"
+        echo ""
+        echo -e "${BLUE}🔧 Troubleshooting:${NC}"
+        echo "- Check browser console for WASM loading errors"
+        echo "- Ensure WASM files are served with correct MIME types"
+        echo "- Verify CORS headers for WASM module loading"
+        echo "- For Kubernetes: kubectl logs -f deployment/<service-name> -n exam-converter"
+    fi
 }
 
 # Run main function

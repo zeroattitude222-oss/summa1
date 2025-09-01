@@ -1,0 +1,6 @@
+# Core dependencies for document analysis
+regex==2023.12.25
+
+# WASM build dependencies
+pyodide-build==0.25.0
+micropip==0.5.0

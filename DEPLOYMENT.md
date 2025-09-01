@@ -1,274 +1,352 @@
-# Exam Document Converter - Deployment Guide
+# Client-Side WASM Exam Document Converter - Deployment Guide
 
 ## Overview
 
-This guide covers deploying the Exam Document Converter application locally using Minikube or Kind, and in production using a Kubernetes cluster with Jenkins CI/CD.
+This guide covers deploying a fully client-side document converter that uses WebAssembly (WASM) modules for document processing. The application runs entirely in the browser with no traditional backend server.
 
 ## Architecture
 
-- **Frontend**: React TypeScript application (Port 5173)
-- **Python Service**: Document analysis service (Port 8001)
-- **Rust Service**: Document conversion service (Port 8002)
+- **Frontend**: React TypeScript application with WASM integration
+- **Python WASM**: Document analysis and intelligent file renaming (client-side)
+- **Rust WASM**: High-performance document conversion and formatting (client-side)
+- **No Backend**: All processing happens in the browser using WebAssembly
+
+## Key Features
+
+🌐 **100% Client-Side Processing** - No server uploads, complete privacy
+🐍 **Python WASM** - Intelligent document analysis and file renaming
+🦀 **Rust WASM** - High-performance document conversion and compression
+🔒 **Privacy-First** - Files never leave the user's browser
+⚡ **Fast Processing** - WebAssembly performance for document operations
 
 ## Prerequisites
 
 ### Local Development
 - Docker Desktop
-- Minikube or Kind
-- kubectl
 - Node.js 18+
-- Python 3.11+
-- Rust 1.75+
+- Python 3.11+ (for WASM building)
+- Rust 1.75+ (for WASM building)
+- wasm-pack (Rust WASM toolchain)
 
-### Production
+### Kubernetes Deployment
 - Kubernetes cluster
-- Jenkins with Docker and Kubernetes plugins
+- kubectl configured
+- Ingress controller (NGINX recommended)
 - Docker registry access
-- kubectl configured for your cluster
 
-## Local Deployment with Minikube
-
-### 1. Start Minikube
+## Quick Start (Development)
 
 ```bash
-# Start Minikube with sufficient resources
-minikube start --memory=4096 --cpus=2
+# 1. Clone and setup
+git clone <repository>
+cd exam-document-converter
 
-# Enable ingress addon
+# 2. Run setup script
+chmod +x scripts/local-setup.sh
+./scripts/local-setup.sh
+
+# 3. Choose option 1 (Development Mode)
+```
+
+## WASM Module Development
+
+### Python WASM Module
+
+The Python module handles document analysis and intelligent file renaming:
+
+```bash
+cd wasm-modules/python-analyzer
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Build WASM module
+python build.py
+
+# Test locally
+python analyzer.py
+```
+
+**Key Functions:**
+- `analyze_document_wasm(filename)` - Main WASM export
+- Document type detection (marksheet, certificate, photo, etc.)
+- Education level detection (10th, 12th, graduation, etc.)
+- Intelligent file renaming with confidence scoring
+
+### Rust WASM Module
+
+The Rust module handles high-performance document conversion:
+
+```bash
+cd wasm-modules/rust-converter
+
+# Install wasm-pack
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Build WASM module
+./build.sh
+
+# Output will be in ./build/ directory
+```
+
+**Key Functions:**
+- `convert_documents(request_json)` - Main WASM export
+- Format conversion (PDF, JPEG, PNG, DOCX)
+- Size optimization and compression
+- Exam-specific format compliance
+
+## Local Deployment Options
+
+### Option 1: Development Mode (Recommended for development)
+
+```bash
+# Build WASM modules
+./scripts/local-setup.sh
+# Choose option 1
+
+# Manual steps:
+npm install
+npm run dev
+```
+
+Access: http://localhost:5173
+
+### Option 2: Docker Compose (Quick containerized setup)
+
+```bash
+# Build and run all services
+docker-compose up --build
+
+# Access application
+open http://localhost:5173
+```
+
+### Option 3: Minikube (Full Kubernetes locally)
+
+```bash
+# Start Minikube
+minikube start --memory=4096 --cpus=2
 minikube addons enable ingress
 
-# Enable registry addon (optional, for local images)
-minikube addons enable registry
-```
+# Build and deploy
+./scripts/local-setup.sh
+# Choose option 3
 
-### 2. Build Docker Images
-
-```bash
-# Build frontend image
-docker build -t exam-converter/frontend:latest .
-
-# Build Python service image
-docker build -t exam-converter/python-analyzer:latest ./python-wasm
-
-# Build Rust service image
-docker build -t exam-converter/rust-converter:latest ./rust-wasm
-
-# Load images into Minikube
-minikube image load exam-converter/frontend:latest
-minikube image load exam-converter/python-analyzer:latest
-minikube image load exam-converter/rust-converter:latest
-```
-
-### 3. Deploy to Kubernetes
-
-```bash
-# Apply all Kubernetes manifests
-kubectl apply -f k8s/
-
-# Wait for deployments to be ready
-kubectl wait --for=condition=available --timeout=300s deployment --all -n exam-converter
-
-# Check pod status
-kubectl get pods -n exam-converter
-```
-
-### 4. Access the Application
-
-```bash
-# Get Minikube IP
-minikube ip
-
-# Add to /etc/hosts (replace <MINIKUBE_IP> with actual IP)
-echo "<MINIKUBE_IP> exam-converter.local" | sudo tee -a /etc/hosts
-
-# Access the application
+# Access application
 open http://exam-converter.local
 ```
 
-## Local Deployment with Kind
-
-### 1. Create Kind Cluster
+### Option 4: Kind (Lightweight Kubernetes)
 
 ```bash
-# Create cluster with ingress support
-cat <<EOF | kind create cluster --config=-
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  kubeadmConfigPatches:
-  - |
-    kind: InitConfiguration
-    nodeRegistration:
-      kubeletExtraArgs:
-        node-labels: "ingress-ready=true"
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 80
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-EOF
+# Setup Kind cluster
+./scripts/local-setup.sh
+# Choose option 4
 
-# Install NGINX Ingress Controller
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-
-# Wait for ingress controller to be ready
-kubectl wait --namespace ingress-nginx \
-  --for=condition=ready pod \
-  --selector=app.kubernetes.io/component=controller \
-  --timeout=90s
-```
-
-### 2. Build and Load Images
-
-```bash
-# Build images
-docker build -t exam-converter/frontend:latest .
-docker build -t exam-converter/python-analyzer:latest ./python-wasm
-docker build -t exam-converter/rust-converter:latest ./rust-wasm
-
-# Load images into Kind
-kind load docker-image exam-converter/frontend:latest
-kind load docker-image exam-converter/python-analyzer:latest
-kind load docker-image exam-converter/rust-converter:latest
-```
-
-### 3. Deploy Application
-
-```bash
-# Deploy all services
-kubectl apply -f k8s/
-
-# Wait for deployments
-kubectl wait --for=condition=available --timeout=300s deployment --all -n exam-converter
-
-# Check status
-kubectl get all -n exam-converter
-```
-
-### 4. Access Application
-
-```bash
-# Add to /etc/hosts
-echo "127.0.0.1 exam-converter.local" | sudo tee -a /etc/hosts
-
-# Access the application
+# Access application
 open http://exam-converter.local
 ```
 
-## Production Deployment with Jenkins
+## Production Deployment
 
-### 1. Jenkins Setup
+### 1. Build Pipeline (Jenkins)
 
-Install required plugins:
-- Docker Pipeline
-- Kubernetes CLI
-- Git
-
-Configure credentials:
-- `docker-registry-credentials`: Docker registry username/password
-- `kubeconfig`: Kubernetes cluster configuration
-
-### 2. Create Jenkins Pipeline
-
-1. Create a new Pipeline job in Jenkins
-2. Configure Git repository URL
-3. Set Pipeline script path to `Jenkinsfile`
-4. Configure webhook for automatic builds on git push
-
-### 3. Environment Variables
-
-Set these in Jenkins or your Kubernetes cluster:
+The Jenkinsfile handles:
+- Building WASM modules
+- Creating Docker images
+- Deploying to Kubernetes
+- Health checks and rollback
 
 ```bash
-# Docker registry configuration
-DOCKER_REGISTRY=your-registry.com
-DOCKER_REPO=exam-converter
-
-# Kubernetes configuration
-KUBECONFIG=/path/to/kubeconfig
-```
-
-### 4. Deploy
-
-Push code to trigger Jenkins pipeline:
-
-```bash
-git add .
-git commit -m "Deploy exam converter application"
+# Trigger deployment
 git push origin main
 ```
 
-## Monitoring and Troubleshooting
+### 2. Kubernetes Manifests
 
-### Check Application Health
+Key components:
+- `frontend-deployment.yaml` - React app with WASM integration
+- `wasm-deployments.yaml` - WASM file serving
+- `ingress.yaml` - Routing and CORS for WASM
+- `configmap.yaml` - Application configuration
+
+### 3. WASM File Serving
+
+WASM modules are served as static files with proper MIME types:
+
+```nginx
+location ~* \.wasm$ {
+    add_header Content-Type application/wasm;
+    add_header Access-Control-Allow-Origin *;
+    add_header Cache-Control "public, max-age=3600";
+}
+```
+
+## Application Workflow
+
+### 1. Initialization
+```javascript
+// Frontend loads WASM modules
+await wasmService.initialize();
+```
+
+### 2. Document Analysis (Python WASM)
+```javascript
+// Analyze uploaded file
+const analysis = await wasmService.analyzeDocument(file);
+// Returns: { suggestedName, confidence, documentType }
+```
+
+### 3. Document Conversion (Rust WASM)
+```javascript
+// Convert documents to exam formats
+const result = await wasmService.convertDocuments(
+  files, examType, targetFormats, maxSizes
+);
+```
+
+### 4. Download
+```javascript
+// Download converted files
+files.forEach(file => {
+  const link = document.createElement('a');
+  link.href = file.convertedUrl; // Blob URL
+  link.download = file.name;
+  link.click();
+});
+```
+
+## Supported Exam Types
+
+| Exam | Formats | Max Sizes | Requirements |
+|------|---------|-----------|--------------|
+| NEET | PDF, JPEG | PDF: 2MB, JPEG: 500KB | 10th/12th Marksheet, Photo, Signature |
+| JEE | PDF, JPEG, PNG | PDF: 1MB, JPEG/PNG: 300KB | Certificates, Photo, Signature |
+| UPSC | PDF, JPEG, PNG | PDF: 3MB, Images: 1MB | Educational Certificates, Experience |
+| CAT | PDF, JPEG | PDF: 1.5MB, JPEG: 400KB | Graduation Certificate, Photo |
+| GATE | PDF, JPEG, PNG | PDF: 2MB, Images: 500KB | Degree Certificate, Photo |
+
+## Troubleshooting
+
+### WASM Loading Issues
 
 ```bash
-# Check all pods
+# Check WASM files are accessible
+curl -I http://localhost:5173/wasm/python/
+curl -I http://localhost:5173/wasm/rust/
+
+# Verify MIME types
+curl -H "Accept: application/wasm" http://localhost:5173/wasm/rust/document_converter_wasm.wasm
+```
+
+### Browser Console Errors
+
+Common issues:
+- CORS errors: Ensure proper headers for WASM files
+- MIME type errors: Verify `application/wasm` content type
+- Module loading: Check browser developer tools Network tab
+
+### Kubernetes Debugging
+
+```bash
+# Check pod status
 kubectl get pods -n exam-converter
 
-# Check service endpoints
-kubectl get endpoints -n exam-converter
+# Check WASM file serving
+kubectl logs -f deployment/wasm-server -n exam-converter
 
-# Check ingress
-kubectl get ingress -n exam-converter
-
-# View logs
+# Check frontend logs
 kubectl logs -f deployment/frontend -n exam-converter
-kubectl logs -f deployment/python-analyzer -n exam-converter
-kubectl logs -f deployment/rust-converter -n exam-converter
+
+# Test ingress
+kubectl describe ingress exam-converter-ingress -n exam-converter
 ```
-
-### Common Issues
-
-1. **Images not found**: Ensure images are built and available in the registry
-2. **Pod crashes**: Check resource limits and application logs
-3. **Service not accessible**: Verify service selectors and port configurations
-4. **Ingress not working**: Ensure ingress controller is installed and running
-
-### Scaling
-
-```bash
-# Scale deployments
-kubectl scale deployment frontend --replicas=3 -n exam-converter
-kubectl scale deployment python-analyzer --replicas=3 -n exam-converter
-kubectl scale deployment rust-converter --replicas=3 -n exam-converter
-```
-
-### Updates
-
-```bash
-# Rolling update
-kubectl set image deployment/frontend frontend=exam-converter/frontend:new-tag -n exam-converter
-
-# Check rollout status
-kubectl rollout status deployment/frontend -n exam-converter
-
-# Rollback if needed
-kubectl rollout undo deployment/frontend -n exam-converter
-```
-
-## Security Considerations
-
-1. **Network Policies**: Implement network policies to restrict inter-pod communication
-2. **RBAC**: Configure proper role-based access control
-3. **Secrets Management**: Use Kubernetes secrets for sensitive data
-4. **Image Security**: Scan Docker images for vulnerabilities
-5. **TLS**: Configure TLS certificates for production ingress
 
 ## Performance Optimization
 
-1. **Resource Limits**: Set appropriate CPU and memory limits
-2. **Horizontal Pod Autoscaler**: Configure HPA for automatic scaling
-3. **Persistent Volumes**: Use PVs for file storage if needed
-4. **CDN**: Use a CDN for static assets in production
-5. **Caching**: Implement Redis for caching converted documents
+### WASM Module Optimization
 
-## Backup and Recovery
+1. **Rust WASM**:
+   ```bash
+   # Build with optimizations
+   wasm-pack build --target web --release --out-dir pkg
+   ```
 
-1. **Database Backups**: If using persistent storage, configure regular backups
-2. **Configuration Backups**: Version control all Kubernetes manifests
-3. **Disaster Recovery**: Document recovery procedures
-4. **Monitoring**: Set up monitoring and alerting with Prometheus/Grafana
+2. **Python WASM**:
+   ```bash
+   # Minimize Python module size
+   pyodide build --optimize
+   ```
+
+### Frontend Optimization
+
+1. **Lazy Loading**:
+   ```javascript
+   // Load WASM modules only when needed
+   const wasmModule = await import('./wasm/module.js');
+   ```
+
+2. **Caching**:
+   ```javascript
+   // Cache WASM modules in browser
+   const cache = await caches.open('wasm-modules');
+   ```
+
+## Security Considerations
+
+1. **Client-Side Only**: No server-side vulnerabilities
+2. **File Validation**: Validate file types and sizes in WASM
+3. **Memory Safety**: Rust provides memory safety for document processing
+4. **CORS**: Proper CORS headers for WASM module loading
+5. **CSP**: Content Security Policy for WASM execution
+
+## Monitoring
+
+### Application Metrics
+
+- WASM module load times
+- Document processing performance
+- Conversion success rates
+- Browser compatibility metrics
+
+### Kubernetes Metrics
+
+```bash
+# Resource usage
+kubectl top pods -n exam-converter
+
+# Service availability
+kubectl get endpoints -n exam-converter
+```
+
+## Browser Compatibility
+
+| Browser | WASM Support | Status |
+|---------|--------------|--------|
+| Chrome 57+ | ✅ Full | Recommended |
+| Firefox 52+ | ✅ Full | Supported |
+| Safari 11+ | ✅ Full | Supported |
+| Edge 16+ | ✅ Full | Supported |
+
+## Development Tips
+
+1. **WASM Debugging**: Use browser developer tools for WASM debugging
+2. **Hot Reload**: WASM modules require page refresh during development
+3. **Error Handling**: Implement proper error boundaries for WASM failures
+4. **Testing**: Test with various document types and sizes
+5. **Performance**: Monitor memory usage during large file processing
+
+## Contributing
+
+1. **WASM Modules**: Add new document types or conversion formats
+2. **Frontend**: Improve UI/UX for document processing
+3. **Testing**: Add automated tests for WASM functions
+4. **Documentation**: Update guides for new features
+
+## Support
+
+For issues and questions:
+- Check browser console for WASM errors
+- Verify WASM module loading in Network tab
+- Test with different document types
+- Review Kubernetes logs for deployment issues

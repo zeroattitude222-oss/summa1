@@ -5,16 +5,60 @@ metadata:
   namespace: exam-converter
 data:
   # Frontend configuration
-  VITE_PYTHON_SERVICE_URL: "http://python-service:8001"
-  VITE_RUST_SERVICE_URL: "http://rust-service:8002"
+  NODE_ENV: "production"
   
-  # Python service configuration
-  FLASK_ENV: "production"
-  PYTHONPATH: "/app"
+  # WASM module paths
+  PYTHON_WASM_URL: "/wasm/python/"
+  RUST_WASM_URL: "/wasm/rust/"
   
-  # Rust service configuration
-  RUST_LOG: "info"
-  
-  # Common configuration
+  # Application configuration
   MAX_FILE_SIZE: "10485760"  # 10MB
-  ALLOWED_EXTENSIONS: "pdf,doc,docx,jpg,jpeg,png"
+  ALLOWED_EXTENSIONS: "pdf,doc,docx,jpg,jpeg,png,gif"
+  MAX_FILES_PER_BATCH: "20"
+  
+  # Exam configurations
+  SUPPORTED_EXAMS: "neet,jee,upsc,cat,gate"
+  
+  # Security settings
+  CORS_ORIGINS: "*"
+  ENABLE_FILE_VALIDATION: "true"
+  
+  # Performance settings
+  WASM_CACHE_DURATION: "3600"  # 1 hour
+  STATIC_CACHE_DURATION: "86400"  # 24 hours
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-wasm-config
+  namespace: exam-converter
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+        
+        # WASM MIME type
+        location ~* \.wasm$ {
+            add_header Content-Type application/wasm;
+            add_header Access-Control-Allow-Origin *;
+            add_header Cache-Control "public, max-age=3600";
+        }
+        
+        server {
+            listen 8080;
+            server_name localhost;
+            root /usr/share/nginx/html;
+            
+            location / {
+                add_header Access-Control-Allow-Origin *;
+                add_header Access-Control-Allow-Methods "GET, OPTIONS";
+                add_header Access-Control-Allow-Headers "Content-Type";
+            }
+        }
+    }

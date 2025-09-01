@@ -1,31 +1,83 @@
-# Use the official Node.js runtime as the base image
-FROM node:18-alpine
+# Multi-stage build for React frontend with WASM modules
 
-# Set the working directory inside the container
+# Stage 1: Build Python WASM module
+FROM python:3.11-slim as python-builder
+
+WORKDIR /python-build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python WASM source
+COPY wasm-modules/python-analyzer/ ./
+
+# Install Python dependencies and build
+RUN pip install --no-cache-dir -r requirements.txt
+RUN python build.py
+
+# Stage 2: Build Rust WASM module  
+FROM rust:1.75-slim as rust-builder
+
+WORKDIR /rust-build
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install wasm-pack
+RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Copy Rust WASM source
+COPY wasm-modules/rust-converter/ ./
+
+# Build WASM module
+RUN chmod +x build.sh && ./build.sh
+
+# Stage 3: Build React frontend
+FROM node:18-alpine as frontend-builder
+
 WORKDIR /app
 
-# Copy package.json and package-lock.json (if available)
+# Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev dependencies for Vite)
+# Install dependencies
 RUN npm ci
 
-# Copy the rest of the application code
-COPY . .
+# Copy source code
+COPY src/ ./src/
+COPY public/ ./public/
+COPY index.html ./
+COPY vite.config.js ./
+COPY tailwind.config.js ./
 
-# Create a non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nextjs -u 1001
+# Copy WASM modules from previous stages
+COPY --from=python-builder /python-build/build/ ./public/wasm/python/
+COPY --from=rust-builder /rust-build/build/ ./public/wasm/rust/
 
-# Change ownership of the app directory to the nodejs user
-RUN chown -R nextjs:nodejs /app
-USER nextjs
+# Build the application
+RUN npm run build
 
-# Expose the port the app runs on (Vite default is 5173)
-EXPOSE 5173
+# Stage 4: Production runtime
+FROM nginx:alpine
 
-# Set environment to development (needed for Vite dev server)
-ENV NODE_ENV=development
+# Copy built application
+COPY --from=frontend-builder /app/dist /usr/share/nginx/html
 
-# Command to run the application with host binding for Docker
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Create non-root user
+RUN adduser -D -s /bin/sh appuser && \
+    chown -R appuser:appuser /usr/share/nginx/html
+USER appuser
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

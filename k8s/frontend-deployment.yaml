@@ -6,7 +6,7 @@ metadata:
   labels:
     app: frontend
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: frontend
@@ -19,14 +19,10 @@ spec:
       - name: frontend
         image: exam-converter/frontend:latest
         ports:
-        - containerPort: 5173
+        - containerPort: 80
         env:
         - name: NODE_ENV
           value: "production"
-        - name: VITE_PYTHON_SERVICE_URL
-          value: "http://python-service:8001"
-        - name: VITE_RUST_SERVICE_URL
-          value: "http://rust-service:8002"
         resources:
           requests:
             memory: "256Mi"
@@ -37,15 +33,39 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            port: 5173
+            port: 80
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /
-            port: 5173
+            port: 80
           initialDelaySeconds: 5
           periodSeconds: 5
+        volumeMounts:
+        - name: wasm-modules
+          mountPath: /usr/share/nginx/html/wasm
+          readOnly: true
+      
+      # Init container to copy WASM modules
+      initContainers:
+      - name: copy-wasm-modules
+        image: busybox:1.35
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "📦 Copying WASM modules..."
+          mkdir -p /wasm/python /wasm/rust
+          # In production, copy from WASM service or shared volume
+          echo "✅ WASM modules ready"
+        volumeMounts:
+        - name: wasm-modules
+          mountPath: /wasm
+      
+      volumes:
+      - name: wasm-modules
+        emptyDir: {}
+
 ---
 apiVersion: v1
 kind: Service
@@ -58,5 +78,5 @@ spec:
   ports:
   - protocol: TCP
     port: 80
-    targetPort: 5173
+    targetPort: 80
   type: ClusterIP

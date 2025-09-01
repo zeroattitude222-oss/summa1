@@ -9,12 +9,21 @@ metadata:
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
     nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Authorization"
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Enable WASM MIME type
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location ~* \.wasm$ {
+        add_header Content-Type application/wasm;
+        add_header Cache-Control "public, max-age=31536000";
+      }
 spec:
   ingressClassName: nginx
   rules:
   - host: exam-converter.local
     http:
       paths:
+      # Frontend application
       - path: /
         pathType: Prefix
         backend:
@@ -22,20 +31,25 @@ spec:
             name: frontend-service
             port:
               number: 80
-      - path: /api/python
+      
+      # WASM modules serving
+      - path: /wasm/python
         pathType: Prefix
         backend:
           service:
-            name: python-service
+            name: wasm-service
             port:
-              number: 8001
-      - path: /api/rust
+              number: 8080
+      
+      - path: /wasm/rust
         pathType: Prefix
         backend:
           service:
-            name: rust-service
+            name: wasm-service
             port:
-              number: 8002
+              number: 8081
+  
+  # TLS configuration (optional)
   tls:
   - hosts:
     - exam-converter.local
