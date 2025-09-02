@@ -21,13 +21,13 @@ function App() {
   useEffect(() => {
     const initializeWasm = async () => {
       try {
-        setInitializationProgress('Loading WASM loader...');
+        setInitializationProgress('Initializing document service...');
         await wasmService.initialize();
-        setInitializationProgress('WASM modules ready!');
+        setInitializationProgress('Document service ready!');
         setWasmLoaded(true);
       } catch (error) {
-        console.error('Failed to initialize WASM modules:', error);
-        setWasmError(error instanceof Error ? error.message : 'Failed to load WASM modules');
+        console.error('Failed to initialize document service:', error);
+        setWasmError(error instanceof Error ? error.message : 'Failed to load document service');
       }
     };
 
@@ -133,7 +133,7 @@ function App() {
       <div className="min-h-screen bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">WASM Loading Error</h2>
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Service Loading Error</h2>
           <p className="text-gray-600 mb-4">{wasmError}</p>
           <button 
             onClick={() => window.location.reload()}
@@ -151,7 +151,7 @@ function App() {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Loading WASM Modules</h2>
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Loading Document Service</h2>
           <p className="text-gray-600">{initializationProgress}</p>
         </div>
       </div>
@@ -186,7 +186,7 @@ function App() {
               </p>
               <div className="mt-4 inline-flex items-center space-x-2 bg-green-100 text-green-800 px-4 py-2 rounded-full text-sm font-medium">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span>100% Client-Side Processing with WebAssembly</span>
+                <span>100% Client-Side Processing</span>
               </div>
             </div>
 
