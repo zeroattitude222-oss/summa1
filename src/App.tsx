@@ -15,12 +15,15 @@ function App() {
   const [isConverting, setIsConverting] = useState(false);
   const [wasmLoaded, setWasmLoaded] = useState(false);
   const [wasmError, setWasmError] = useState<string | null>(null);
+  const [initializationProgress, setInitializationProgress] = useState('Initializing...');
 
   // Initialize WASM modules on component mount
   useEffect(() => {
     const initializeWasm = async () => {
       try {
+        setInitializationProgress('Loading WASM loader...');
         await wasmService.initialize();
+        setInitializationProgress('WASM modules ready!');
         setWasmLoaded(true);
       } catch (error) {
         console.error('Failed to initialize WASM modules:', error);
@@ -50,18 +53,31 @@ function App() {
             : f
         ));
         
-        const analysis = await wasmService.analyzeDocument(fileItem.file);
-        
-        setFiles(prev => prev.map(f => 
-          f.id === fileItem.id 
-            ? { 
-                ...f, 
-                name: analysis.suggestedName,
-                status: 'converting',
-                progress: 50 
-              }
-            : f
-        ));
+        try {
+          const analysis = await wasmService.analyzeDocument(fileItem.file);
+          
+          setFiles(prev => prev.map(f => 
+            f.id === fileItem.id 
+              ? { 
+                  ...f, 
+                  name: analysis.suggestedName,
+                  status: 'converting',
+                  progress: 50 
+                }
+              : f
+          ));
+        } catch (analysisError) {
+          console.warn('Analysis failed, using original name:', analysisError);
+          setFiles(prev => prev.map(f => 
+            f.id === fileItem.id 
+              ? { 
+                  ...f, 
+                  status: 'converting',
+                  progress: 50 
+                }
+              : f
+          ));
+        }
       }
       
       // Step 2: Convert documents with Rust WASM
@@ -136,7 +152,7 @@ function App() {
         <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <h2 className="text-2xl font-bold text-gray-800 mb-4">Loading WASM Modules</h2>
-          <p className="text-gray-600">Initializing document processing engines...</p>
+          <p className="text-gray-600">{initializationProgress}</p>
         </div>
       </div>
     );
